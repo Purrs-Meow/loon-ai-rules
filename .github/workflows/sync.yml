@@ -2,6 +2,7 @@ name: Sync AI rules
 
 on:
   schedule:
+    # Check daily; download only after 15 elapsed days (not day-of-month */15).
     - cron: '37 21 * * *'
   workflow_dispatch:
   push:
@@ -30,25 +31,36 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Read the newest persisted success time after a queued run starts.
+          ref: ${{ github.event.repository.default_branch }}
 
-      - name: Test converter
+      - name: Test converter and 15-day interval
         run: python3 -m unittest discover -s tests -v
 
+      - name: Check whether synchronization is due
+        id: interval
+        run: python3 -m scripts.sync_interval check
+
       - name: Download and validate upstream rules
+        if: steps.interval.outputs.due == 'true'
         run: python3 scripts/sync_rules.py
 
-      - name: Commit only a changed rule file
+      - name: Persist successful sync and any changed rules
+        if: steps.interval.outputs.due == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          git add -- Ai.lsr
-          if git diff --cached --quiet -- Ai.lsr; then
-            echo 'Upstream rules are unchanged; no commit needed.'
-            echo 'Sync succeeded. The rule file is unchanged.' >> "$GITHUB_STEP_SUMMARY"
+          # This step is skipped if download/validation failed. Push the state
+          # even when Ai.lsr is unchanged, so a no-change success resets the timer.
+          python3 -m scripts.sync_interval record
+          git add -- Ai.lsr .sync-state.json
+          if git diff --cached --quiet -- Ai.lsr .sync-state.json; then
+            echo 'This successful sync time is already recorded.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'chore: sync upstream AI rules' -- Ai.lsr
+          git commit -m 'chore: record successful 15-day AI rule sync' -- Ai.lsr .sync-state.json
           git push
-          echo 'Sync succeeded. Updated Ai.lsr and pushed the commit.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Sync succeeded. Rules and last-success time are saved; next automatic sync is eligible after 15 days.' >> "$GITHUB_STEP_SUMMARY"
