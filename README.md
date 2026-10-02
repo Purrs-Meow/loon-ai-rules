@@ -16,10 +16,13 @@ https://raw.githubusercontent.com/Purrs-Meow/loon-ai-rules/main/Ai.lsr
 
 ## 自动同步
 
-- 每天 **21:37 UTC**（UTC+8 为次日 05:37）运行，GitHub 排程可能延迟
-- 可在 **Actions → Sync AI rules → Run workflow** 手动运行
-- 修改 README、转换脚本、测试或工作流也会触发检查与同步
-- 仅在文件内容变化时提交 `Ai.lsr`，不添加每日时间戳或空提交
+- 距离**上次成功同步满 15 天（360 小时）**后，才会再次自动下载上游并转换规则，跨月、跨年也按实际间隔计算
+- GitHub cron 不能直接表示连续每隔 15 天，因此保留每天 **21:37 UTC**（UTC+8 为次日 05:37）的轻量检查；未到期会跳过下载，不改规则或成功时间
+- 满 15 天后的首次定时检查会同步，通常有不到一天的检查间隔，GitHub 排程本身也可能延迟；这不是固定每月 1 日、16 日、31 日运行
+- 可在 **Actions → Sync AI rules → Run workflow** 随时强制同步；成功后从这次成功时间重新计满 15 天
+- 修改 README、转换脚本、测试或工作流只触发测试，不会提前下载上游
+- 成功时间保存在 [`.sync-state.json`](.sync-state.json)。每次成功都会提交该记录，即使规则没有变化；`Ai.lsr` 仍只在内容变化时更新，不创建每日时间戳或空提交
+- 下载或校验失败不更新成功时间；规则和成功时间放在同一提交中，推送失败也不会更新远端记录。到期失败后，下一次每日检查会再尝试；记录缺失时首次定时检查会同步，记录损坏时则报错，人工核对或手动成功同步后修复
 - 使用 GitHub 自带的 `GITHUB_TOKEN`，写权限仅授予同步任务，无需 PAT 或额外密钥
 - 转换器只用 Python 标准库；`actions/checkout` 固定到官方 v7.0.1 的完整提交 SHA
 
@@ -35,11 +38,11 @@ HTTP 403、HTML 错误页、空文件、无效 UTF-8、未知规则类型或格�
 
 ## 保持仓库活跃
 
-GitHub 官方说明：[公开仓库连续 60 天没有仓库活动时，计划工作流会自动停用](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)。每天运行任务不应被当作永久保活的保证，尤其是在上游长期没有变化时。
+GitHub 官方说明：[公开仓库连续 60 天没有仓库活动时，计划工作流会自动停用](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)。每天的轻量检查不应被当作永久保活的保证。每次成功同步会提交实际成功时间，但仍建议定期检查任务是否正常。
 
 建议每 30–45 天检查一次运行记录，并在这里记录真实的维护结果、提交 README：
 
-- 最近维护：2026-10-02，初始化转换脚本、校验与维护说明
+- 最近维护：2026-10-02，改为按上次成功时间间隔 15 天同步，保留手动强制同步，补充跨月、失败与计时记录测试
 - 下次维护时：检查最近成功运行时间、上游是否可访问、Loon 是否能正常更新，再补充日期和结果
 
 如果已停用，进入 **Actions → Sync AI rules** 重新启用工作流，再执行一次 **Run workflow**。README 提交用于留下维护记录，不替代重新启用操作。
@@ -51,11 +54,13 @@ Python 3.10+，无需安装依赖：
 ```sh
 python3 -m unittest discover -s tests -v
 python3 scripts/sync_rules.py
+# 仅检查当前是否到期（不下载、不写成功记录）：
+python3 -m scripts.sync_interval check --event schedule
 # 离线验证已保存的上游文件：
 python3 scripts/sync_rules.py --input tests/fixtures/Ai.yaml --output /tmp/Ai-test.lsr
 ```
 
-测试覆盖真实初始快照的逐条一致性、格式/类型错误、HTML/空响应、HTTP 和网络失败、规则骤减、失败后保留旧文件、原子替换失败与内容不变时不写入。
+测试覆盖真实初始快照的逐条一致性、格式/类型错误、HTML/空响应、HTTP 和网络失败、规则骤减、失败后保留旧文件、原子替换失败与内容不变时不写入；另覆盖 15 天边界、跨月/跨年/闰年、未到期跳过、手动强制、无变化成功记录、损坏/未来时间与同步失败不更新远端记录。
 
 ## 来源与权利
 
