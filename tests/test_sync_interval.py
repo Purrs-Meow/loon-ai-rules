@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import sync_interval as interval
-from scripts import sync_rules
+from scripts import sync_rules, sync_voice, merge_rules
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -120,13 +120,15 @@ class WorkflowPersistenceTests(unittest.TestCase):
         self.git("remote", "add", "origin", str(self.remote))
         self.data = (ROOT / "tests/fixtures/Ai.yaml").read_bytes()
         sync_rules.sync(self.data, self.repo / "Ai.lsr")
+        sync_voice.sync((ROOT / "tests/fixtures/chatgpt-voice.json").read_bytes(), self.repo)
+        merge_rules.merge(self.repo)
         interval.record_success(self.repo / ".sync-state.json", interval.timestamp("2020-01-01T00:00:00Z"))
         self.git("add", ".")
         self.git("commit", "-m", "initial fixture")
         self.git("push", "-u", "origin", "main")
         self.original_remote = self.remote_state()
         workflow = (ROOT / ".github/workflows/sync.yml").read_text()
-        self.persist = textwrap.dedent(workflow.split("        run: |\n", 1)[1])
+        self.persist = textwrap.dedent(workflow.split("      - name: Persist successful sync and any changed rules\n", 1)[1].split("        run: |\n", 1)[1])
         self.env = {**os.environ, "PYTHONPATH": str(ROOT), "GITHUB_STEP_SUMMARY": str(self.base / "summary")}
 
     def git(self, *args, cwd=None):

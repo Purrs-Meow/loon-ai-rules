@@ -1,0 +1,63 @@
+name: Sync ChatGPT Voice IPs
+
+on:
+  schedule:
+    - cron: '47 21 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/voice.yml'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'ChatGPT-Voice.lsr'
+      - 'Ai.lsr'
+      - 'Ai-Combined.lsr'
+
+permissions: {}
+
+# Serialize with the existing AI sync to avoid competing main-branch pushes.
+concurrency:
+  group: sync-ai-rules
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run all offline tests
+        run: python3 -m unittest discover -s tests -v
+
+  sync:
+    needs: test
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Validate latest checkout and fetch official voice IPs
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 -m scripts.sync_voice
+          python3 -m scripts.merge_rules
+      - name: Publish Loon rules only after successful validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- ChatGPT-Voice.lsr Ai-Combined.lsr
+          if git diff --cached --quiet; then
+            echo 'Official voice IPs unchanged.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: sync official ChatGPT Voice IPs'
+          git push
+          echo 'Published validated Loon ChatGPT Voice IP rules.' >> "$GITHUB_STEP_SUMMARY"

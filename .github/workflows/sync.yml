@@ -44,7 +44,9 @@ jobs:
 
       - name: Download and validate upstream rules
         if: steps.interval.outputs.due == 'true'
-        run: python3 scripts/sync_rules.py
+        run: |
+          python3 scripts/sync_rules.py
+          python3 -m scripts.merge_rules
 
       - name: Persist successful sync and any changed rules
         if: steps.interval.outputs.due == 'true'
@@ -54,13 +56,13 @@ jobs:
           # This step is skipped if download/validation failed. Push the state
           # even when Ai.lsr is unchanged, so a no-change success resets the timer.
           python3 -m scripts.sync_interval record
-          git add -- Ai.lsr .sync-state.json
-          if git diff --cached --quiet -- Ai.lsr .sync-state.json; then
+          git add -- Ai.lsr Ai-Combined.lsr .sync-state.json
+          if git diff --cached --quiet -- Ai.lsr Ai-Combined.lsr .sync-state.json; then
             echo 'This successful sync time is already recorded.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'chore: record successful 15-day AI rule sync' -- Ai.lsr .sync-state.json
+          git commit -m 'chore: record successful 15-day AI rule sync' -- Ai.lsr Ai-Combined.lsr .sync-state.json
           git push
           echo 'Sync succeeded. Rules and last-success time are saved; next automatic sync is eligible after 15 days.' >> "$GITHUB_STEP_SUMMARY"
